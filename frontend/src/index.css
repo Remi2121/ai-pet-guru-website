@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Brand tokens */
+:root{
+  --brand-primary: #6E59A5;
+  --brand-accent:  #7ED4F8;
+}
+
+/* Components */
+@layer components {
+  /* Base rules shared by all button variants */
+  :where(.btn, .btn-primary, .btn-ghost) {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-medium transition disabled:opacity-60 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply text-white shadow-md;
+    background: var(--brand-primary);
+  }
+
+  .btn-ghost {
+    @apply bg-white border hover:bg-black/5;
+    color: var(--brand-primary);
+    border-color: color-mix(in oklab, var(--brand-primary), transparent 80%);
+  }
+
+  .card { @apply bg-white rounded-2xl shadow-md p-5; }
+  .container-6xl { @apply max-w-6xl mx-auto; }
+}
+
+/* App basics */
+html, body, #root { height: 100%; }
+body { @apply text-slate-800 bg-gradient-to-b from-[color:var(--brand-accent)]/10 to-white; font-family: Inter, Poppins, system-ui, sans-serif; }
