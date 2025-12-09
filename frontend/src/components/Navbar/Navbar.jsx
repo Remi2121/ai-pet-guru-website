@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+// src/components/Navbar/Navbar.jsx
+import React, { useState, useEffect } from "react";
 import { Link, NavLink } from "react-router-dom";
 
 const nav = [
@@ -13,7 +14,7 @@ const nav = [
   { to: "/lost", label: "Lost" },
 ];
 
-export default function Navbar() {
+export default function Navbar({ onOpenAuth }) {
   const [open, setOpen] = useState(false);
 
   // Auto-close menu when resizing above mobile
@@ -28,12 +29,11 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 bg-white/90 backdrop-blur border-b border-purple-200">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-4">
-        
         {/* Logo */}
         <Link to="/" className="flex items-center gap-2">
           <img
             src="/ai-pet-guru-logo.png"
-            className="h-9 w-9 rounded-xl"
+            className="h-9 w-9 rounded-xl object-contain"
             alt="AI Pet Guru"
           />
           <span className="font-bold text-lg text-purple-700">AI Pet Guru</span>
@@ -58,37 +58,30 @@ export default function Navbar() {
           ))}
         </nav>
 
-        {/* Desktop Start button */}
+        {/* Desktop Join button */}
         <div className="hidden md:block ml-2">
-          <Link
-            to="/disease"
+          <button
+            onClick={() => onOpenAuth && onOpenAuth()}
             className="px-5 py-2 text-white rounded-xl shadow"
             style={{ background: "var(--brand-primary)" }}
           >
-            Start
-          </Link>
+            Join
+          </button>
         </div>
 
         {/* Mobile Hamburger */}
         <button
           className="md:hidden ml-auto inline-flex items-center justify-center w-10 h-10 rounded-lg border border-slate-200 text-slate-700"
           onClick={() => setOpen(!open)}
+          aria-label="Toggle menu"
         >
           {open ? (
-            <svg className="w-6 h-6" fill="none" stroke="currentColor">
-              <path
-                strokeWidth="2"
-                strokeLinecap="round"
-                d="M6 6l12 12M6 18L18 6"
-              />
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeWidth="2" strokeLinecap="round" d="M6 6l12 12M6 18L18 6" />
             </svg>
           ) : (
-            <svg className="w-6 h-6" fill="none" stroke="currentColor">
-              <path
-                strokeWidth="2"
-                strokeLinecap="round"
-                d="M3 6h18M3 12h18M3 18h18"
-              />
+            <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeWidth="2" strokeLinecap="round" d="M3 6h18M3 12h18M3 18h18" />
             </svg>
           )}
         </button>
@@ -114,7 +107,7 @@ export default function Navbar() {
               >
                 <img
                   src="/ai-pet-guru-logo.png"
-                  className="h-8 w-8 rounded-lg"
+                  className="h-8 w-8 rounded-lg object-contain"
                   alt="AI Pet Guru"
                 />
                 <span className="font-semibold text-purple-700">
@@ -124,14 +117,9 @@ export default function Navbar() {
               <button
                 className="w-8 h-8 inline-flex items-center justify-center rounded-lg border"
                 onClick={() => setOpen(false)}
+                aria-label="Close menu"
               >
-                <svg
-                  className="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                >
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <path d="M6 6l12 12M6 18L18 6" />
                 </svg>
               </button>
@@ -157,14 +145,13 @@ export default function Navbar() {
               ))}
 
               {/* Start Button */}
-              <Link
-                to="/disease"
-                onClick={() => setOpen(false)}
+              <button
+                onClick={() => { setOpen(false); onOpenAuth && onOpenAuth(); }}
                 className="mt-4 block text-center w-full px-4 py-3 rounded-xl text-white font-medium"
                 style={{ background: "var(--brand-primary)" }}
               >
-                Start Image Check
-              </Link>
+                Join
+              </button>
             </div>
           </div>
         </div>

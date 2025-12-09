@@ -1,4 +1,5 @@
-import React from "react";
+// src/App.jsx
+import React, { useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
 
@@ -13,18 +14,22 @@ import Disease from "./pages/Disease/Disease.jsx";
 import Food from "./pages/Food/Food.jsx";
 import Recommend from "./pages/Recommend/Recommend.jsx";
 import Train from "./pages/Train/Train.jsx";
-import Health from "./pages/health/Health.jsx";
+import Health from "./pages/health/health.jsx";
 import Vaccines from "./pages/Vaccines/Vaccines.jsx";
-import Lost from "./pages/Lost/Lost.jsx";
+import Lost from "./pages/Lost/lost.jsx";
 import Voice from "./pages/Voice/Voice.jsx";
-import About from "./pages/About/About.jsx"; // <--- ensure folder is "About"
+import About from "./pages/About/About.jsx"; // ensure folder is "About"
 
 import DangerMeter from "./components/DangerMeter/DangerMeter.jsx";
+import Auth from "./components/Auth/Auth.jsx";
 
 export default function App() {
+  const [authOpen, setAuthOpen] = useState(false);
+
   return (
     <div className="min-h-screen flex flex-col">
-      <Navbar />
+      <Navbar onOpenAuth={() => setAuthOpen(true)} />
+      <Auth open={authOpen} onClose={() => setAuthOpen(false)} />
 
       <main className="flex-1">
         <Routes>
