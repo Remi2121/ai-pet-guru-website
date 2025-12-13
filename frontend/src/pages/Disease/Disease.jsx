@@ -40,6 +40,22 @@ export default function Disease() {
   const [res, setRes] = useState(null);
   const [err, setErr] = useState(null);
 
+  // ---- helper to read nice backend error JSON (422, 400, etc.)
+  const readErrorMessage = async (resp) => {
+    try {
+      const j = await resp.json();
+      if (j?.error === "not_pet_image") {
+        const en = j.message || "This photo doesn't seem to be a pet.";
+        const ta = j.message_ta || "";
+        return `${en}\n${ta}`;
+      }
+      if (j?.detail) return String(j.detail);
+      if (j?.message) return String(j.message);
+    // eslint-disable-next-line no-unused-vars
+    } catch (_) { /* empty */ }
+    return `Server error (${resp.status})`;
+  };
+
   // ⭐ REAL BACKEND API CALL
   const analyze = async () => {
     if (!imgB64) {
@@ -64,7 +80,18 @@ export default function Disease() {
         body: fd,
       });
 
-      if (!resp.ok) throw new Error("Server error: " + resp.status);
+      // Show friendly bilingual message for 422 from backend
+      if (resp.status === 422) {
+        const msg = await readErrorMessage(resp);
+        setErr(msg);
+        setLoading(false);
+        return;
+      }
+
+      if (!resp.ok) {
+        const msg = await readErrorMessage(resp);
+        throw new Error(msg);
+      }
 
       const data = await resp.json();
 
@@ -113,7 +140,7 @@ export default function Disease() {
       setRes(uiRes);
     } catch (error) {
       console.error(error);
-      setErr("Backend error — check console");
+      setErr(String(error.message || "Backend error — check console"));
     }
 
     setLoading(false);
@@ -127,12 +154,10 @@ export default function Disease() {
     setErr(null);
   };
 
-
-
   const previewSrc = (b64) => {
     if (!b64) return null;
     return b64.startsWith("data:") ? b64 : `data:image/png;base64,${b64}`;
-  };
+    };
 
   return (
     <section className="max-w-6xl mx-auto px-4 py-10">
@@ -227,9 +252,8 @@ export default function Disease() {
               </button>
             </div>
 
-            {err && <p className="text-sm text-red-600 mt-3">{err}</p>}
+            {err && <p className="text-sm text-red-600 mt-3 whitespace-pre-line">{err}</p>}
           </div>
-
         </aside>
 
         {/* RIGHT SIDE */}
@@ -360,7 +384,6 @@ export default function Disease() {
           <div className="bg-white rounded-2xl shadow p-4">
             <h4 className="font-medium mb-3">Disease explanation</h4>
 
-            {/* Show overlay image if available, otherwise show the generated description */}
             {res ? (
               res.disease_image_b64 ? (
                 <div className="grid md:grid-cols-2 gap-4">

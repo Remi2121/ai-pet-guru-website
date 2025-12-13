@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState} from "react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const FALLBACK = (name) =>
@@ -13,8 +13,8 @@ export default function Recommend() {
     allergies: "no",
     time: "",
   });
-  const [file, setFile] = useState(null);
-  const fileRef = useRef(null);
+  const [file] = useState(null);
+
 
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -56,10 +56,7 @@ export default function Recommend() {
     }
   };
 
-  const onPickImage = (e) => {
-    const f = e.target.files?.[0];
-    if (f) setFile(f);
-  };
+
 
   const safeImg = (url, name) => {
     const u = (url || "").trim();
@@ -87,19 +84,7 @@ export default function Recommend() {
           />
         </div>
 
-        <div>
-          <label className="text-sm font-medium text-slate-700">Optional: upload a home photo</label>
-          <div className="mt-2 flex items-center gap-3">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              onChange={onPickImage}
-              className="block w-full text-sm text-slate-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-            />
-            {file && <span className="text-xs text-slate-500">{file.name}</span>}
-          </div>
-        </div>
+        
 
         <div>
           <label className="text-sm font-medium text-slate-700">House size *</label>

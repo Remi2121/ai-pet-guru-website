@@ -1,8 +1,43 @@
-import React from "react";
+import React, { useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import emailjs from "emailjs-com";
 
 export default function Footer() {
   const year = new Date().getFullYear();
+
+  // EmailJS
+  const formRef = useRef(null);
+  const [status, setStatus] = useState("");
+  const [sending, setSending] = useState(false);
+
+  const sendEmail = (e) => {
+    e.preventDefault();
+    if (sending) return;
+    setSending(true);
+    setStatus("Sending...");
+
+    // ensure time is set for the template {{time}}
+    const timeInput = formRef.current.querySelector('input[name="time"]');
+    if (timeInput) timeInput.value = new Date().toLocaleString();
+
+    emailjs
+      .sendForm(
+        "service_jpyy0dp",     // ← your EmailJS Service ID
+        "template_3dickjd",    // ← your Template ID (expects: name, user_email, message, time)
+        formRef.current,
+        "1O9eu4fEcwq4DNk3F"    // ← your Public Key
+      )
+      .then(() => {
+        setStatus("✅ Message sent! ");
+        formRef.current.reset();
+      })
+      .catch((err) => {
+        console.error(err);
+        setStatus("❌ Failed to send. Try again.");
+      })
+      .finally(() => setSending(false));
+  };
+
   return (
     <footer className="bg-white border-t border-[color:var(--brand-primary)]/10">
       <div className="max-w-6xl mx-auto px-6 py-10">
@@ -15,7 +50,10 @@ export default function Footer() {
                 alt="AI Pet Guru"
                 className="h-10 w-10 rounded-lg object-contain"
               />
-              <span className="text-lg font-semibold" style={{ color: "var(--brand-primary)" }}>
+              <span
+                className="text-lg font-semibold"
+                style={{ color: "var(--brand-primary)" }}
+              >
                 AI Pet Guru
               </span>
             </Link>
@@ -79,30 +117,71 @@ export default function Footer() {
             </ul>
           </div>
 
-          {/* Contact / small newsletter */}
+          {/* Contact / small newsletter – EmailJS enabled */}
           <div>
             <h4 className="text-sm font-semibold text-slate-900 mb-3">Stay in touch</h4>
-            <p className="text-sm text-slate-600 mb-3">Get occasional tips & product updates.</p>
+            <p className="text-sm text-slate-600 mb-3">
+              Get occasional tips & product updates.
+            </p>
 
-            <form
-              onSubmit={(e) => e.preventDefault()}
-              className="flex items-center gap-2"
-            >
-              <label htmlFor="f_email" className="sr-only">Email</label>
-              <input
-                id="f_email"
-                type="email"
-                placeholder="you@domain.com"
-                className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-primary)]"
-                aria-label="Email address"
-              />
-              <button
-                type="submit"
-                className="inline-flex items-center px-3 py-2 rounded-lg text-white text-sm"
-                style={{ background: "var(--brand-primary)" }}
-              >
-                Subscribe
-              </button>
+            <form ref={formRef} onSubmit={sendEmail} className="space-y-2">
+              {/* Name */}
+              <div className="flex items-center gap-2">
+                <label htmlFor="f_name" className="sr-only">Name</label>
+                <input
+                  id="f_name"
+                  name="name"
+                  type="text"
+                  placeholder="Your name"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-primary)]"
+                  required
+                />
+              </div>
+
+              {/* Email */}
+              <div className="flex items-center gap-2">
+                <label htmlFor="f_email" className="sr-only">Email</label>
+                <input
+                  id="f_email"
+                  name="user_email"
+                  type="email"
+                  placeholder="you@domain.com"
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-primary)]"
+                  required
+                />
+              </div>
+
+              {/* Message */}
+              <div>
+                <label htmlFor="f_message" className="sr-only">Message</label>
+                <textarea
+                  id="f_message"
+                  name="message"
+                  rows="3"
+                  placeholder="Say hi! Tell us what updates you want."
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[color:var(--brand-primary)]"
+                  required
+                />
+              </div>
+
+              {/* hidden time field for template */}
+              <input type="hidden" name="time" />
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="submit"
+                  disabled={sending}
+                  className={`inline-flex items-center px-3 py-2 rounded-lg text-white text-sm ${
+                    sending ? "opacity-70 cursor-not-allowed" : ""
+                  }`}
+                  style={{ background: "var(--brand-primary)" }}
+                >
+                  {sending ? "Sending..." : "Send Message"}
+                </button>
+                {status && (
+                  <p className="text-xs text-slate-600">{status}</p>
+                )}
+              </div>
             </form>
 
             <div className="text-xs text-slate-500 mt-3">

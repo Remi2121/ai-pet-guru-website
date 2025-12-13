@@ -1,7 +1,6 @@
-// src/pages/Home/Home.jsx
 import React from "react";
 import { Link } from "react-router-dom";
-import heroDog from "../../assets/pet-hero.png"; // change image name to your file
+import heroDog from "../../assets/pet-hero.png";
 
 export default function Home() {
   return (
@@ -9,11 +8,13 @@ export default function Home() {
 
       {/* LEFT SIDE */}
       <div className="max-w-xl space-y-6">
-        <h1 className="text-4xl md:text-5xl font-bold leading-tight"
-            style={{ color: "var(--brand-primary)" }}>
-          Intelligent Pet Care,  
+        <h1
+          className="text-4xl md:text-5xl font-bold leading-tight moving-text"
+          style={{ color: "var(--brand-primary)" }}
+        >
+          <span>Intelligent</span> <span>Pet</span> <span>Care,</span>
           <br />
-          Made Simple ❤️🐾
+          <span>Made</span> <span>Simple</span> <span>❤️</span> <span>🐾</span>
         </h1>
 
         <p className="text-slate-600 text-lg">
@@ -22,7 +23,6 @@ export default function Home() {
           and care for your pet like a pro.
         </p>
 
-        {/* ACTION BUTTONS */}
         <div className="flex flex-wrap gap-4 pt-4">
           <Link
             to="/disease"
@@ -49,7 +49,6 @@ export default function Home() {
           className="w-[400px] md:w-[520px] drop-shadow-xl max-h-[600px]"
         />
       </div>
-
     </div>
   );
 }

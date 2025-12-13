@@ -14,7 +14,7 @@ from google import genai
 try:
     from google.genai.errors import ClientError
 except Exception:
-    ClientError = Exception  # fallback if errors module not available
+    ClientError = Exception  # fallback
 
 # ==========================================================
 # 🚀 SETUP
@@ -24,23 +24,19 @@ logger = logging.getLogger("ai-pet-backend")
 
 load_dotenv()
 
-# --- Gemini (health + captions + training fallback)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
     raise SystemExit("❌ Set GEMINI_API_KEY in backend/.env")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 GEMINI_MODEL = "models/gemini-2.5-flash"
 
-# --- Hugging Face (training primary)
 HF_TOKEN = os.getenv("HF_TOKEN")
 if not HF_TOKEN:
     raise SystemExit("❌ Set HF_TOKEN in backend/.env")
 HF_MODEL = os.getenv("HF_TEXT_MODEL", "HuggingFaceH4/zephyr-7b-beta:featherless-ai")
 HF_CHAT_URL = "https://api-inference.huggingface.co/v1/chat/completions"
 
-# --- FastAPI
 app = FastAPI(title="🐾 AI Pet Assistant (stable images)")
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -134,7 +130,7 @@ def _slug(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (s or "pet").lower()).strip("-") or "pet"
 
 # ==========================================================
-# 🧯 RATE LIMIT + CACHE HELPERS (all endpoints)
+# 🧯 RATE LIMIT + CACHE HELPERS
 # ==========================================================
 @dataclass
 class TokenBucket:
@@ -152,23 +148,21 @@ class TokenBucket:
             return True
         return False
 
-# Buckets per endpoint (tweak as needed)
 PREDICT_BUCKET   = TokenBucket(capacity=5, refill_per_sec=5.0, tokens=5.0, last=time.time())
 VOICE_BUCKET     = TokenBucket(capacity=5, refill_per_sec=5.0, tokens=5.0, last=time.time())
 CAPTION_BUCKET   = TokenBucket(capacity=5, refill_per_sec=5.0, tokens=5.0, last=time.time())
 RECOMMEND_BUCKET = TokenBucket(capacity=5, refill_per_sec=5.0, tokens=5.0, last=time.time())
 TRAIN_BUCKET     = TokenBucket(capacity=5, refill_per_sec=5.0, tokens=5.0, last=time.time())
+FOOD_BUCKET      = TokenBucket(capacity=5, refill_per_sec=5.0, tokens=5.0, last=time.time())
 
-# Caches
 _PREDICT_CACHE: Dict[str, Dict[str, Any]]   = {}
 _VOICE_CACHE: Dict[str, Dict[str, Any]]     = {}
 _CAPTION_CACHE: Dict[str, Dict[str, Any]]   = {}
 _RECOMMEND_CACHE: Dict[str, Dict[str, Any]] = {}
 _TRAIN_CACHE: Dict[str, Dict[str, Any]]     = {}
+_FOOD_CACHE: Dict[str, Dict[str, Any]]      = {}
 
-# ---- common safe Gemini wrapper
 def _call_gemini_json(model: str, parts: list, *, temperature: float = 0.2) -> Dict[str, Any]:
-    """Call Gemini and always return a dict; return {'__FALLBACK__':True} on 429."""
     try:
         res = gemini_client.models.generate_content(
             model=model,
@@ -194,10 +188,9 @@ def _call_gemini_json(model: str, parts: list, *, temperature: float = 0.2) -> D
         return {}
 
 # ==========================================================
-# 🖼️ PLACEHOLDER IMAGES (royalty-free Unsplash)
+# 🖼️ PLACEHOLDER IMAGES
 # ==========================================================
 PLACEHOLDER_IMAGES: Dict[str, str] = {
-    # 🐶 Dogs
     "golden retriever": "https://images.unsplash.com/photo-1507149833265-60c372daea22?auto=format&fit=crop&w=1200&q=60",
     "labrador retriever": "https://images.unsplash.com/photo-1518717758536-85ae29035b6d?auto=format&fit=crop&w=1200&q=60",
     "german shepherd": "https://images.unsplash.com/photo-1552053831-71594a27632d?auto=format&fit=crop&w=1200&q=60",
@@ -221,7 +214,6 @@ PLACEHOLDER_IMAGES: Dict[str, str] = {
     "pomeranian": "https://images.unsplash.com/photo-1517849845537-4d257902454a?auto=format&fit=crop&w=1200&q=60",
     "indian pariah dog": "https://images.unsplash.com/photo-1583511655826-05700d52f4d9?auto=format&fit=crop&w=1200&q=60",
 
-    # 🐱 Cats
     "domestic shorthair cat": "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?auto=format&fit=crop&w=1200&q=60",
     "bengal cat": "https://images.unsplash.com/photo-1543852786-1cf6624b9987?auto=format&fit=crop&w=1200&q=60",
     "ragdoll cat": "https://images.unsplash.com/photo-1518791841217-8f162f1e1131?auto=format&fit=crop&w=1200&q=60",
@@ -234,22 +226,15 @@ PLACEHOLDER_IMAGES: Dict[str, str] = {
     "british shorthair": "https://images.unsplash.com/photo-1574158622682-e40e69881006?auto=format&fit=crop&w=1200&q=60",
     "scottish fold": "https://images.unsplash.com/photo-1574158622682-e40e69881006?auto=format&fit=crop&w=1200&q=60",
 
-    # 🐹 Small pets
     "guinea pig": "https://images.unsplash.com/photo-1564349683136-77e08dba1ef7?auto=format&fit=crop&w=1200&q=60",
     "hamster": "https://images.unsplash.com/photo-1583511655903-48058f2a5b51?auto=format&fit=crop&w=1200&q=60",
     "rabbit": "https://images.unsplash.com/photo-1501706362039-c06b2d715385?auto=format&fit=crop&w=1200&q=60",
-
-    # 🐟 Fish
     "betta fish": "https://images.unsplash.com/photo-1579783902614-a3fb3927b6a5?auto=format&fit=crop&w=1200&q=60",
     "goldfish": "https://images.unsplash.com/photo-1507149833265-60c372daea22?auto=format&fit=crop&w=1200&q=60",
-
-    # 🐦 Birds
     "budgerigar": "https://images.unsplash.com/photo-1589656966895-2f33e7653819?auto=format&fit=crop&w=1200&q=60",
     "parakeet": "https://images.unsplash.com/photo-1589656966895-2f33e7653819?auto=format&fit=crop&w=1200&q=60",
     "cockatiel": "https://images.unsplash.com/photo-1589656966895-2f33e7653819?auto=format&fit=crop&w=1200&q=60",
     "canary": "https://images.unsplash.com/photo-1469474968028-56623f02e42e?auto=format&fit=crop&w=1200&q=60",
-
-    # 🐢 Reptiles
     "tortoise": "https://images.unsplash.com/photo-1519066629447-267fffa62d5b?auto=format&fit=crop&w=1200&q=60",
     "turtle": "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=1200&q=60",
     "leopard gecko": "https://images.unsplash.com/photo-1619855329421-6f4b9d24dd47?auto=format&fit=crop&w=1200&q=60",
@@ -288,7 +273,7 @@ def _seeded_fallback(pet_name: str, idx: int = 0) -> str:
     return f"https://picsum.photos/seed/{seed}/900/600"
 
 # ==========================================================
-# TRAINING PLAN (HF primary, Gemini fallback with RL/cache)
+# TRAINING PLAN (HF primary, Gemini fallback)
 # ==========================================================
 HF_JSON_SCHEMA = {
     "name": "PetTrainingPlan",
@@ -388,27 +373,6 @@ def call_hf(prompt: str) -> str:
         raise HTTPException(status_code=502, detail="HF returned no text content")
     return raw
 
-def call_gemini_for_plan(prompt: str) -> str:
-    schema_hint = (
-        '{ "title": "", "summary": "", "dailyRoutine": [], '
-        '"sevenDay": [{"day":1,"activities":[]}], '
-        '"rewards": [], "videoLinks": [{"title":"","url":""}], '
-        '"notes": [], "meta": {"seed": ""}, "friendlyName": "" }'
-    )
-    res = gemini_client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[{"role": "user","parts": [
-            {"text": "Return STRICT JSON only."},
-            {"text": "No double-quote inside any string; use backticks."},
-            {"text": "No numbered steps; no trailing commas."},
-            {"text": "Schema example (keys must match):"},
-            {"text": schema_hint},
-            {"text": prompt},
-        ]}],
-        config={"temperature": 0.2, "response_mime_type": "application/json"},
-    )
-    return (res.text or "").strip()
-
 def normalize_plan_like_object(plan, body):
     if isinstance(plan, str):
         try:
@@ -433,7 +397,6 @@ def normalize_plan_like_object(plan, body):
     return plan
 
 def _train_fallback(body: TrainIn) -> Dict[str, Any]:
-    # minimal useful offline fallback
     pet = body.petType
     friendly = "pup" if pet == "Dog" else "kitty" if pet == "Cat" else "pet"
     activities = [
@@ -468,22 +431,15 @@ def health():
 def generate_training_plan(body: TrainIn):
     if not body.petType or not body.problem:
         raise HTTPException(status_code=400, detail="petType and problem are required")
-
     prompt = build_prompt(body.petType, body.age, body.problem, body.goal)
     key = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:24]
-
-    # cache
     if key in _TRAIN_CACHE:
         return _TRAIN_CACHE[key]
-
-    # local RL (for Gemini fallback path)
     if not TRAIN_BUCKET.allow():
         logger.info("Train RL hit; serving fallback")
         plan = _train_fallback(body)
         _TRAIN_CACHE[key] = plan
         return plan
-
-    # HF primary
     try:
         raw = call_hf(prompt)
         try: plan = json.loads(raw)
@@ -493,8 +449,6 @@ def generate_training_plan(body: TrainIn):
         return plan
     except Exception:
         logger.exception("HF failed; trying Gemini")
-
-    # Gemini fallback (safe wrapper)
     parts = [{"text": "Return STRICT JSON only."}, {"text": prompt}]
     data = _call_gemini_json(GEMINI_MODEL, parts, temperature=0.2)
     if data.get("__FALLBACK__") or not isinstance(data, dict) or not data:
@@ -504,12 +458,11 @@ def generate_training_plan(body: TrainIn):
             plan = normalize_plan_like_object(data, body)
         except Exception:
             plan = _train_fallback(body)
-
     _TRAIN_CACHE[key] = plan
     return plan
 
 # ==========================================================
-# 🧩 IMAGE HEALTH (Gemini) — HARDENED WITH RL + CACHE
+# 🧩 IMAGE HEALTH
 # ==========================================================
 def _img_key(img_bytes: bytes, animal: str, sex: str) -> str:
     h = hashlib.sha256(img_bytes).hexdigest()[:16]
@@ -530,9 +483,38 @@ def _predict_fallback(animal: str, sex: str) -> Dict[str, Any]:
         "meta": {"animal": animal, "sex": sex, "notes": "Model unavailable; heuristic fallback."},
     }
 
+def _pet_gate_check(img_b64: str, mime: str) -> Dict[str, Any]:
+    """
+    Use Gemini vision to verify the image is a PET photo.
+    Returns: {"is_pet": bool|None, "animal": str|None, "confidence": float, "reason": str}
+    - None means the checker couldn't decide (API fallback/ambiguous).
+    """
+    parts = [
+        {"text": (
+            "You are an image gatekeeper. Decide if this image PRIMARILY shows a PET "
+            "(dog, cat, rabbit, hamster/guinea pig, bird, reptile, or fish). "
+            "Return STRICT JSON: "
+            "{\"is_pet\": boolean, \"animal\": string|null, \"confidence\": number, \"reason\": string}."
+        )},
+        {"inline_data": {"mime_type": mime, "data": img_b64}},
+    ]
+    data = _call_gemini_json(GEMINI_MODEL, parts, temperature=0.0)
+    if data.get("__FALLBACK__") or not isinstance(data, dict):
+        return {"is_pet": None, "animal": None, "confidence": 0.0, "reason": "model_fallback"}
+    try:
+        is_pet = data.get("is_pet", None)
+        animal = data.get("animal", None)
+        conf = clamp01(data.get("confidence", 0.0))
+        reason = str(data.get("reason", ""))[:200]
+        if isinstance(is_pet, bool):
+            return {"is_pet": is_pet, "animal": animal, "confidence": conf, "reason": reason}
+        return {"is_pet": None, "animal": None, "confidence": conf, "reason": reason}
+    except Exception:
+        return {"is_pet": None, "animal": None, "confidence": 0.0, "reason": "parse_error"}
+
 @app.post("/api/predict")
 async def predict(image: UploadFile = File(...), animal: str = Form("unknown"), sex: str = Form("unknown")):
-    # 1) Read & validate image
+    # ---------- Read/validate image ----------
     try:
         img_bytes = await image.read()
         Image.open(BytesIO(img_bytes))
@@ -540,21 +522,37 @@ async def predict(image: UploadFile = File(...), animal: str = Form("unknown"), 
         logger.exception("Invalid image")
         raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
 
-    # 2) Cache check
+    mime = image.content_type or "image/jpeg"
+    img_b64 = base64.b64encode(img_bytes).decode("ascii")
+
+    # ---------- PET GATE: block non-pet images with friendly message ----------
+    gate = _pet_gate_check(img_b64, mime)
+    # If model is confident it's NOT a pet, stop here.
+    if gate.get("is_pet") is False and gate.get("confidence", 0.0) >= 0.6:
+        msg_en = ("This photo doesn't seem to be a pet. Please upload a clear photo of your pet's "
+                  "skin/wound area (dog/cat, good lighting, close-up).")
+        return JSONResponse(
+            status_code=422,
+            content={
+                "error": "not_pet_image",
+                "message": msg_en,
+                "gate": gate,
+            },
+        )
+
+    # ---------- Cache key only after we allow pet images ----------
     cache_key = _img_key(img_bytes, animal, sex)
     if cache_key in _PREDICT_CACHE:
         return JSONResponse(_PREDICT_CACHE[cache_key])
 
-    # 3) Local rate-limit
+    # ---------- Rate limit ----------
     if not PREDICT_BUCKET.allow():
         logger.info("Rate-limited locally; serving fallback for predict()")
         data = _predict_fallback(animal, sex)
         _PREDICT_CACHE[cache_key] = data
         return JSONResponse(data)
 
-    # 4) Build Gemini request parts
-    mime = image.content_type or "image/jpeg"
-    data_b64 = base64.b64encode(img_bytes).decode("ascii")
+    # ---------- Gemini dermatology inference ----------
     system_rules = "You are a veterinary assistant analyzing pet skin/wound issues. Return STRICT JSON only."
     schema = {
         "predictions": [{"label": "string", "probability": 0.0}],
@@ -569,15 +567,13 @@ async def predict(image: UploadFile = File(...), animal: str = Form("unknown"), 
         {"text": system_rules},
         {"text": json.dumps(schema)},
         {"text": user_instruction},
-        {"inline_data": {"mime_type": mime, "data": data_b64}},
+        {"inline_data": {"mime_type": mime, "data": img_b64}},
     ]
 
-    # 5) Call Gemini with guardrails
     data = _call_gemini_json(GEMINI_MODEL, parts, temperature=0.2)
     if data.get("__FALLBACK__"):
         data = _predict_fallback(animal, sex)
 
-    # 6) Sanitize & bound outputs
     try:
         for p in data.get("predictions", []):
             p["label"] = str(p.get("label", "Unknown"))[:64]
@@ -589,16 +585,18 @@ async def predict(image: UploadFile = File(...), animal: str = Form("unknown"), 
             data["meta"] = {"animal": animal, "sex": sex, "notes": "AI helper, not diagnosis."}
         elif "notes" not in data["meta"]:
             data["meta"]["notes"] = "AI helper, not diagnosis."
+        # attach gate info (useful for UI debug)
+        data.setdefault("gate", gate)
     except Exception:
         logger.exception("Post-process sanitize failed; supplying fallback")
         data = _predict_fallback(animal, sex)
+        data["gate"] = gate
 
-    # 7) Cache & return
     _PREDICT_CACHE[cache_key] = data
     return JSONResponse(data)
 
 # ==========================================================
-# 🎤 VOICE SYMPTOM CHECKER — HARDENED
+# 🎤 VOICE SYMPTOM CHECKER
 # ==========================================================
 class VoiceIn(BaseModel):
     audio_b64: str
@@ -680,7 +678,7 @@ def analyze_voice(body: VoiceIn):
     return JSONResponse(out)
 
 # ==========================================================
-# 🎨 CAPTION — HARDENED
+# 🎨 CAPTION
 # ==========================================================
 def _caption_key(img_bytes: bytes, category: str) -> str:
     h = hashlib.sha256(img_bytes + b"|" + category.encode()).hexdigest()[:24]
@@ -712,17 +710,15 @@ async def generate_caption(image: UploadFile = File(...), category: str = Form("
     if data.get("__FALLBACK__"):
         out = {"caption": "Too cute to handle 😍"}
     else:
-        # if model returns raw text in a dict-less form, try best-effort
         cap = data if isinstance(data, str) else (data.get("caption") if isinstance(data, dict) else "")
         if not cap:
-            # sometimes API returns plain text; use last raw text via parse_json_loose pathway already tried
             cap = "Best boy energy ✨"
         out = {"caption": str(cap).strip()[:120] or "Pet vibes ✨"}
     _CAPTION_CACHE[key] = out
     return out
 
 # ==========================================================
-# 🐾 RECOMMENDER — HARDENED (wrapper + RL + cache)
+# 🐾 RECOMMENDER
 # ==========================================================
 class RecommendIn(BaseModel):
     house: str
@@ -769,10 +765,6 @@ time: {payload.get('time')}
 name: {payload.get('name') or "unknown"}
 """.strip()
 
-def _parse_recommend_response(text: str) -> Dict[str, Any]:
-    try: return json.loads(text)
-    except Exception: return parse_json_loose(text)
-
 def _rule_based(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     want_hypo = (payload.get("allergies","no").lower() == "yes")
     budget = _parse_int(payload.get("budget"))
@@ -804,7 +796,6 @@ async def recommend(
     name: Optional[str] = Form(None),
     image: Optional[UploadFile] = File(None),
 ):
-    # parse inputs
     payload: Dict[str, Any] = {}
     img_bytes: Optional[bytes] = None
     img_mime = "image/jpeg"
@@ -839,7 +830,6 @@ async def recommend(
         logger.info("Recommend RL hit; using rule-based")
         results = _rule_based(payload)
     else:
-        # Ask LLM for list (image may be blank; we'll fill)
         prompt = _pet_reco_prompt(payload)
         parts = [{"text": prompt}]
         data = _call_gemini_json(GEMINI_MODEL, parts, temperature=0.2)
@@ -851,32 +841,26 @@ async def recommend(
             except Exception:
                 results = _rule_based(payload)
 
-    # ensure 5
     if len(results) < 5:
         results = (results + _rule_based(payload))[:5]
 
-    # echo uploaded image into first card if present
     if img_bytes and results:
         data_url = f"data:{img_mime};base64,{base64.b64encode(img_bytes).decode('ascii')}"
         if not (results[0].get("img") or "").strip():
             results[0]["img"] = data_url
 
-    # Fill images using placeholder map → seeded fallback
     used: set[str] = set()
     normd: List[Dict[str, Any]] = []
     for i, r in enumerate(results[:5]):
         pet = str(r.get("pet","Companion Pet")).strip() or "Companion Pet"
         img = (r.get("img") or "").strip()
-
         if not img:
             ph = _placeholder_for(pet)
-            if ph:
-                img = ph
-        if not img:  # last resort unique
+            if ph: img = ph
+        if not img:
             img = _seeded_fallback(pet, i)
         if img in used:
             img = _seeded_fallback(pet, i+100)
-
         used.add(img)
         normd.append({
             "pet": pet[:60],
@@ -889,3 +873,250 @@ async def recommend(
     out = {"results": normd}
     _RECOMMEND_CACHE[ck] = out
     return out
+
+# ==========================================================
+# 🥫 FOOD ANALYZER — text or image (OCR + vision)
+# ==========================================================
+DOG_HARMFUL = {
+    "xylitol","chocolate","cocoa","caffeine","grapes","raisins","onion","garlic",
+    "leek","chives","macadamia","ethoxyquin","bht","bha","propylene glycol",
+    "sorbitol (xylitol mix)","alcohol","maltitol"
+}
+CAT_HARMFUL = {
+    "onion","garlic","leek","chives","grapes","raisins","alcohol","caffeine",
+    "propylene glycol","ethylene glycol","lilies","chocolate","cocoa","xylitol"
+}
+UNIVERSAL_CAUTION = {
+    "salt","sugar","artificial color","artificial colours","artificial color(s)",
+    "artificial flavour","artificial flavours","caramel color","msg",
+    "monosodium glutamate","corn syrup","glucose syrup","maltodextrin",
+    "by-product","meat by-product"
+}
+BETTER_BRANDS = ["Orijen","Acana","Royal Canin","Farmina N&D","Drools Focus"]
+
+# --- Energy density & safety DB (kcal per gram)
+FOOD_DB = {
+    "burger":        {"kcal_g": 2.6, "pet_ok": False, "tags": ["greasy","salt"]},
+    "fried chicken": {"kcal_g": 2.5, "pet_ok": False, "tags": ["bones","greasy","salt"]},
+    "donut":         {"kcal_g": 4.3, "pet_ok": False, "tags": ["sugar","fat"]},
+    "cookies":       {"kcal_g": 4.5, "pet_ok": False, "tags": ["sugar","chocolate?"]},
+    "pizza":         {"kcal_g": 2.7, "pet_ok": False, "tags": ["salt","fat","onion?","garlic?"]},
+    "french fries":  {"kcal_g": 3.1, "pet_ok": False, "tags": ["salt","oil"]},
+    "soda":          {"kcal_g": 0.4, "pet_ok": False, "tags": ["sugar","caffeine?"]},
+    "chocolate":     {"kcal_g": 5.3, "pet_ok": False, "tags": ["toxic (theobromine)"]},
+    "cake":          {"kcal_g": 3.8, "pet_ok": False, "tags": ["sugar","fat","raisins?"]},
+    "ice cream":     {"kcal_g": 2.0, "pet_ok": False, "tags": ["lactose","sugar"]},
+    "boiled chicken": {"kcal_g": 1.7, "pet_ok": True, "tags": ["lean protein"]},
+    "rice":           {"kcal_g": 1.3, "pet_ok": True, "tags": ["carb"]},
+    "egg":            {"kcal_g": 1.6, "pet_ok": True, "tags": ["protein","fat"]},
+    "carrot":         {"kcal_g": 0.4, "pet_ok": True, "tags": ["veggie"]},
+}
+
+def _food_key(text: str|None, img_bytes: bytes|None) -> str:
+    if text and text.strip():
+        return "T:" + hashlib.sha256(text.strip().lower().encode()).hexdigest()[:24]
+    if img_bytes:
+        return "I:" + hashlib.sha256(img_bytes).hexdigest()[:24]
+    return "food:empty"
+
+def _split_ingredients(raw: str) -> list[str]:
+    t = (raw or "").lower()
+    t = re.sub(r"[^a-z0-9, \-\(\)\/\.]", " ", t)
+    parts = [p.strip(" .") for p in re.split(r",|\n", t) if p.strip()]
+    norm = [re.sub(r"\s+", " ", p) for p in parts]
+    seen=set(); out=[]
+    for p in norm:
+        if p not in seen:
+            out.append(p); seen.add(p)
+    return out[:60]
+
+def _score_food(ings: list[str], animal: str) -> dict:
+    a = (animal or "").strip().lower()
+    harmful_set = DOG_HARMFUL if a == "dog" else CAT_HARMFUL if a == "cat" else DOG_HARMFUL | CAT_HARMFUL
+    harmful, caution = [], []
+    for item in ings:
+        base = item
+        for h in harmful_set:
+            if h in base:
+                harmful.append(item); break
+        else:
+            for c in UNIVERSAL_CAUTION:
+                if c in base:
+                    caution.append(item); break
+    harmful = list(dict.fromkeys(harmful))[:12]
+    caution = list(dict.fromkeys(caution))[:12]
+    if harmful:
+        rating = "bad"
+    elif len(caution) >= 2:
+        rating = "caution"
+    else:
+        rating = "good"
+    return {"rating": rating, "harmful": harmful, "caution": caution}
+
+def _estimate_qty_grams(animal: str, weight_kg: float|None) -> int:
+    if not weight_kg:
+        return 180
+    a = (animal or "").strip().lower()
+    kcal = (70 * (weight_kg ** 0.75)) * (1.2 if a == "cat" else 1.4)
+    grams = int(kcal / 3.5)
+    return max(60, min(grams, 400))
+
+def _items_to_table(items: list[dict], animal: str, daily_kcal: int) -> list[dict]:
+    rows = []
+    for it in items:
+        name = (it.get("name") or "").strip().lower()
+        grams = float(it.get("grams") or 0) if str(it.get("grams") or "").strip() else None
+        key = None
+        for k in FOOD_DB.keys():
+            if k in name or name in k:
+                key = k; break
+        info = FOOD_DB.get(key or name)
+        if not info:
+            info = {"kcal_g": 2.5, "pet_ok": False, "tags": ["unknown"]}
+        kcal_g = float(info["kcal_g"])
+        est_kcal = int(round(kcal_g * (grams or 100)))
+        pet_ok = bool(info["pet_ok"])
+        flag = "unsafe" if not pet_ok else ("high-calorie" if kcal_g >= 3.5 else "ok")
+        if not pet_ok:
+            suggestion = "Avoid for pets."
+        elif kcal_g >= 3.5:
+            suggestion = "Limit; very energy-dense."
+        else:
+            max_g = int((0.1 * daily_kcal) / max(kcal_g, 0.1))
+            suggestion = f"≤ {max_g} g (treat budget)."
+        rows.append({
+            "name": name or (key or "food"),
+            "grams": grams,
+            "kcal_g": round(kcal_g, 2),
+            "est_kcal": est_kcal,
+            "pet_ok": pet_ok,
+            "flag": flag,
+            "tags": info.get("tags", []),
+            "suggestion": suggestion,
+        })
+    return rows
+
+class FoodIn(BaseModel):
+    mode: str = "text"           # "text" or "image"
+    ingredients: Optional[str] = None
+    animal: str = "dog"
+    weight_kg: Optional[float] = None
+
+@app.post("/api/food/analyze")
+async def food_analyze(
+    mode: str = Form("text"),
+    animal: str = Form("dog"),
+    weight_kg: Optional[float] = Form(None),
+    ingredients: Optional[str] = Form(None),
+    image: Optional[UploadFile] = File(None),
+    json_body: Optional[FoodIn] = None,
+):
+    # normalize
+    if json_body:
+        mode = (json_body.mode or "text").lower()
+        animal = (json_body.animal or "dog").lower()
+        weight_kg = json_body.weight_kg
+        ingredients = json_body.ingredients
+
+    img_bytes = None
+    mime = "image/jpeg"
+    if mode == "image":
+        if image is None:
+            raise HTTPException(status_code=400, detail="image required for mode=image")
+        try:
+            img_bytes = await image.read()
+            Image.open(BytesIO(img_bytes))
+            mime = image.content_type or "image/jpeg"
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
+    else:
+        if not (ingredients and ingredients.strip()):
+            raise HTTPException(status_code=400, detail="ingredients text required for mode=text")
+
+    ck = _food_key(ingredients, img_bytes)
+    if ck in _FOOD_CACHE:
+        return JSONResponse(_FOOD_CACHE[ck])
+
+    if not FOOD_BUCKET.allow():
+        logger.info("Food RL hit; returning rule-based only")
+        ings = _split_ingredients(ingredients or "")
+        scored = _score_food(ings, animal)
+        out = {
+            "rating": scored["rating"],
+            "harmful": scored["harmful"] or [],
+            "better": BETTER_BRANDS[:5],
+            "daily_qty_g": _estimate_qty_grams(animal, weight_kg),
+            "source": {"from": "rate-limit"},
+            "ingredients": ings,
+        }
+        _FOOD_CACHE[ck] = out
+        return JSONResponse(out)
+
+    # ---------- Image mode: OCR + Vision ----------
+    ocr_text = None
+    vision_items = []
+    if mode == "image":
+        _b64 = base64.b64encode(img_bytes).decode("ascii")
+
+        # (1) OCR label
+        ocr_parts = [
+            {"text": "Extract the ingredient list from this pet food label. Return STRICT JSON: {\"ingredients\": string}."},
+            {"inline_data": {"mime_type": mime, "data": _b64}},
+        ]
+        ocr = _call_gemini_json(GEMINI_MODEL, ocr_parts, temperature=0.0)
+        if not ocr.get("__FALLBACK__"):
+            try:
+                ocr_text = (ocr.get("ingredients") or "").strip() or None
+            except Exception:
+                ocr_text = None
+
+        # (2) Vision items (works for junk-food photos)
+        det_parts = [
+            {"text": (
+                "Look at the photo and list human foods you see. "
+                "Return STRICT JSON: {\"items\": [{\"name\": string, \"grams\": number|null}]} . "
+                "Use simple names like burger, fried chicken, donut, pizza, cookies, soda, chocolate."
+            )},
+            {"inline_data": {"mime_type": mime, "data": _b64}},
+        ]
+        det = _call_gemini_json(GEMINI_MODEL, det_parts, temperature=0.0)
+        if not det.get("__FALLBACK__"):
+            try:
+                vision_items = det.get("items") or []
+            except Exception:
+                vision_items = []
+
+        # mix OCR text into ingredients
+        ingredients = (ingredients or "")
+        if ocr_text:
+            ingredients = (ingredients + "\n" + ocr_text).strip()
+
+    # ---------- Text analysis ----------
+    ings = _split_ingredients(ingredients or "")
+    scored = _score_food(ings, animal)
+
+    # per-item kcal table + stronger verdict for junk images
+    daily_kcal = int((70 * ((float(weight_kg) if weight_kg else 8.0) ** 0.75)) * (1.2 if animal=="cat" else 1.4))
+    table = _items_to_table(vision_items, animal, daily_kcal) if vision_items else []
+    if mode == "image" and table:
+        if any(not r["pet_ok"] for r in table):
+            rating = "bad"
+        else:
+            rating = "caution" if any(r["kcal_g"] >= 3.5 for r in table) else scored["rating"]
+    else:
+        rating = scored["rating"]
+
+    out = {
+        "rating": rating,
+        "harmful": scored["harmful"] or [],
+        "better": BETTER_BRANDS[:5],
+        "daily_qty_g": _estimate_qty_grams(animal, weight_kg),
+        "source": {
+            "from": "image" if img_bytes else "text",
+            "ocr_text": ocr_text if img_bytes else None,
+            "vision_items": table,
+        },
+        "ingredients": ings,
+    }
+    _FOOD_CACHE[ck] = out
+    return JSONResponse(out)
