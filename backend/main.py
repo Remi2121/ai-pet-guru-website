@@ -1120,3 +1120,133 @@ async def food_analyze(
     }
     _FOOD_CACHE[ck] = out
     return JSONResponse(out)
+
+# ==========================================================
+# 🩺 HEALTH LOG ANALYZER (Firestore integration via frontend)
+# ==========================================================
+ANALYTICS_BUCKET = TokenBucket(capacity=5, refill_per_sec=2.0, tokens=5.0, last=time.time())
+
+class HealthEntry(BaseModel):
+    dateISO: Optional[str] = None
+    food: Optional[str] = ""
+    water: Optional[float] = None
+    vomit: Optional[str] = "no"
+    diarrhea: Optional[str] = "no"
+    activity: Optional[float] = None
+    notes: Optional[str] = ""
+
+class AnalyzeLogsIn(BaseModel):
+    logs: List[HealthEntry]
+
+def _rule_health(entries: List[HealthEntry]) -> Dict[str, Any]:
+    """Fallback if Gemini quota/rate-limit — lightweight rule check."""
+    if not entries:
+        return {
+            "status": "watch",
+            "score": 0.5,
+            "reasons": ["No recent logs available."],
+            "tips": ["Add daily logs", "Monitor appetite and water intake"],
+        }
+
+    bad_flags = 0
+    warn_flags = 0
+    total_water = 0
+    total_activity = 0
+    n = min(7, len(entries))
+
+    for e in entries[:n]:
+        if (e.vomit or "").lower() == "yes": bad_flags += 1
+        if (e.diarrhea or "").lower() == "yes": bad_flags += 1
+        if not e.water or e.water < 100: warn_flags += 1
+        if not e.activity or e.activity < 10: warn_flags += 1
+        total_water += float(e.water or 0)
+        total_activity += float(e.activity or 0)
+
+    reasons = []
+    if bad_flags >= 2:
+        reasons.append("Multiple vomiting or diarrhea entries detected.")
+    elif bad_flags == 1:
+        reasons.append("Single digestion issue reported.")
+    if total_water < 400 * (n / 2):
+        reasons.append("Low water intake overall.")
+    if total_activity < 30 * n:
+        reasons.append("Low physical activity noted.")
+
+    if bad_flags >= 2:
+        status = "bad"
+        base = 0.3
+    elif bad_flags == 1 or warn_flags >= 3:
+        status = "watch"
+        base = 0.55
+    else:
+        status = "good"
+        base = 0.8
+
+    score = max(0.1, min(0.98, base))
+    tips = [
+        "Ensure fresh water daily",
+        "Maintain consistent meals",
+        "Encourage regular exercise",
+        "If symptoms persist, consult a vet"
+    ]
+    return {"status": status, "score": score, "reasons": reasons or ["All good!"], "tips": tips}
+
+@app.post("/api/health/analyze-logs")
+def analyze_logs(body: AnalyzeLogsIn):
+    if not body.logs:
+        raise HTTPException(status_code=400, detail="logs are required")
+
+    # Rate limit check
+    if not ANALYTICS_BUCKET.allow():
+        return JSONResponse(_rule_health(body.logs))
+
+    # Prepare compact rows
+    rows = []
+    for e in body.logs[:7]:
+        rows.append({
+            "date": e.dateISO,
+            "food": e.food or "",
+            "water_ml": e.water or 0,
+            "vomit": e.vomit or "no",
+            "diarrhea": e.diarrhea or "no",
+            "activity_min": e.activity or 0,
+            "notes": e.notes or "",
+        })
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "enum": ["good", "watch", "bad"]},
+            "score": {"type": "number"},
+            "reasons": {"type": "array", "items": {"type": "string"}},
+            "tips": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["status", "score"],
+    }
+
+    parts = [
+        {"text": "You are a veterinary assistant analyzing a pet's daily health logs."},
+        {"text": "Return STRICT JSON following this schema:"},
+        {"text": json.dumps(schema)},
+        {"text": "Use status: 'good', 'watch', or 'bad'."},
+        {"text": "Recent logs (latest first):"},
+        {"text": json.dumps(rows)},
+    ]
+
+    data = _call_gemini_json(GEMINI_MODEL, parts, temperature=0.1)
+    if data.get("__FALLBACK__") or not isinstance(data, dict) or "status" not in data:
+        return JSONResponse(_rule_health(body.logs))
+
+    status = str(data.get("status", "watch")).lower()
+    if status not in ("good", "watch", "bad"):
+        status = "watch"
+    score = clamp01(data.get("score", 0.5))
+    reasons = [str(r)[:160] for r in (data.get("reasons") or [])][:6]
+    tips = [str(t)[:160] for t in (data.get("tips") or [])][:6]
+
+    return JSONResponse({
+        "status": status,
+        "score": score,
+        "reasons": reasons,
+        "tips": tips,
+    })
